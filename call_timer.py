@@ -16,8 +16,9 @@ import random
 class Call_trigger:
     def __init__(self):
         self.neb = Neb("https://testnet.nebulas.io")
+        self.chain_id = 1001
         #account & address
-        self.from_account = Account("6c41a31b4e689e1441c930ce4c34b74cc037bd5e68bbd6878adb2facf62aa7f3")
+        self.from_account = Account("5876489b63d456e3c82b043d235b46f76d4503b613230ed47d10bc4921e22f6a")
         self.from_addr = self.from_account.get_address_obj()
 
         #block height
@@ -85,8 +86,7 @@ class Call_trigger:
         nonce=self.get_nonce()
 
         # calls
-        chain_id = 1001
-        tx = Transaction(chain_id, self.from_account, to_addr, 0, nonce + 1, payload_type, payload, gas_price, gas_limit)
+        tx = Transaction(self.chain_id, self.from_account, to_addr, 0, nonce + 1, payload_type, payload, gas_price, gas_limit)
         tx.calculate_hash()
         tx.sign_hash()
         res = self.neb.api.sendRawTransaction(tx.to_proto()).text
@@ -130,6 +130,10 @@ class Call_trigger:
             if hasNext:
                 # next calculate
                 self.calculate(sessionid)
+            else:
+                return status
+
+        return status
 
     def distribute_trigger(self):
         #call the trigger
@@ -165,10 +169,11 @@ class Call_trigger:
         self.height_next = 0
         if height_now > self.height_next:
             #calculate
-            self.calculate('null')
+            status = self.calculate('null')
 
             #distribute
-            self.distribute_trigger()
+            if status == 1:
+                self.distribute_trigger()
 
             #change the height_next
             self.height_next += self.period_height
