@@ -1,42 +1,43 @@
 # -*- coding:utf-8 -*-
-#neb, acount, contract 所有信息在__init__中修改，
+# neb, account, contract 所有信息在__init__中修改，
 
 from nebpysdk.src.account.Account import Account
 from nebpysdk.src.core.Address import Address
 from nebpysdk.src.core.Transaction import Transaction
-from nebpysdk.src.core.TransactionBinaryPayload import TransactionBinaryPayload
 from nebpysdk.src.core.TransactionCallPayload import TransactionCallPayload
 from nebpysdk.src.client.Neb import Neb
 import json
 import threading
 import time
 import random
+import re
 
 
-class Call_trigger:
+class CallTrigger:
+
     def __init__(self):
         self.neb = Neb("https://testnet.nebulas.io")
         self.chain_id = 1001
-        #account & address
+        # account & address
         self.from_account = Account("5876489b63d456e3c82b043d235b46f76d4503b613230ed47d10bc4921e22f6a")
         self.from_addr = self.from_account.get_address_obj()
 
-        #block height
+        # block height
         self.height_begin = 0
         self.height_next = 0
 
-        #time_skip, 300seconds
+        # time_skip, 300seconds
         self.time_skip = 300
 
-        #times checking the balance，3 times one day
-        self.check_times =3
+        # times checking the balance，3 times one day
+        self.check_times = 3
 
-        #period height
+        # period height
         self.period_height = 6000
 
-        #contract address
-        self.distribute = "n1sZLHKWuXAz13oLyF775c38Z9PcR4bTXbk"
-        self.staking_proxy = 'n1pff2q7R3bz3vu3SdEu4PvmJEJHxijJmEF'
+        # contract address
+        self.distribute = "n1qndLHUUkePQ9rWU1JZyfZJDqZNH5o3zLg"
+        self.staking_proxy = 'n1wXY91Dh7NxWyxpXcPbYJFGoof2mTLWPKw'
 
     def get_nonce(self):
 
@@ -48,11 +49,11 @@ class Call_trigger:
         nonce = int(resp_json['result']['nonce']) + int(resp_json['result']['pending'])
         return nonce
 
-    def getReceipt(self,txhash):
+    def get_receipt(self, tx_hash):
 
-        while(True):
+        while True:
             try:
-                res = self.neb.api.getTransactionReceipt(txhash).text
+                res = self.neb.api.getTransactionReceipt(tx_hash).text
                 obj = json.loads(res)
                 status = obj["result"]["status"]
             except:
@@ -82,11 +83,12 @@ class Call_trigger:
         print("from_addr", self.from_addr.string())
         print("to_addr  ", contract_addr)
 
-        #nonce
-        nonce=self.get_nonce()
+        # nonce
+        nonce = self.get_nonce()
 
         # calls
-        tx = Transaction(self.chain_id, self.from_account, to_addr, 0, nonce + 1, payload_type, payload, gas_price, gas_limit)
+        tx = Transaction(self.chain_id, self.from_account, to_addr, 0, nonce + 1, payload_type, payload, gas_price,
+                         gas_limit)
         tx.calculate_hash()
         tx.sign_hash()
         res = self.neb.api.sendRawTransaction(tx.to_proto()).text
@@ -99,10 +101,11 @@ class Call_trigger:
 
     def check_balance(self):
 
-        #nonce
+        # nonce
         nonce = self.get_nonce()
-        #get current page count
-        re1 = self.neb.api.call(self.from_addr.string(), self.staking_proxy, "0", nonce+1, "200000", "200000", {'function': 'getCurrentPageCount', 'args':'[]'}).text
+        # get current page count
+        re1 = self.neb.api.call(self.from_addr.string(), self.staking_proxy, "0", nonce + 1, "200000", "200000",
+                                {'function': 'getCurrentPageCount', 'args': '[]'}).text
 
         print(re1)
         obj = json.loads(re1)
@@ -110,24 +113,28 @@ class Call_trigger:
 
         # check
         for page in range(pages):
-            result = self.neb.api.call(self.from_addr.string(), self.staking_proxy, "0", nonce+1, "200000", "200000", {'function': 'check', 'args': '[%d]'% page}).text
-            print(result)
+            tx_hash = self.call_contract("check", '[%d]' % page, self.staking_proxy)
+            res = self.get_receipt(tx_hash)
+            print(res)
 
     def calculate(self, sessionid):
 
-        #nonce
+        # nonce
         nonce = self.get_nonce()
-        #calculate
+        # calculate
         print(sessionid)
-        txhash = self.call_contract("calculateTotalValue", "[%s]" % str(sessionid), self.staking_proxy)
-        res = self.getReceipt(txhash)
+        tx_hash = '6b22c098d3d4ffa150aa98028d84128b8ca2d431f3ffffa258f38b74c2bd74c6' #self.call_contract("calculateTotalValue", "[%s]" % str(sessionid), self.staking_proxy)
+        res = self.get_receipt(tx_hash)
         print(res)
         obj = json.loads(res)
         status = obj["result"]["status"]
         if status == 1:
-            hasNext = obj["result"]['execute_result']["hasNext"]
-            sessionid = obj['result']['execute_result']['sessionid']
-            if hasNext:
+            pattern = re.compile(r'{\"hasNext\":(.*?),\"sessionId\":(.*?)}')
+            match = re.search(pattern, obj["result"]["execute_result"])
+            hasNext = match.group(1)
+            sessionid = int(match.group(2))
+            print('hasNext: %s, sessionid: %d' % (hasNext, sessionid))
+            if hasNext != 'false':
                 # next calculate
                 self.calculate(sessionid)
             else:
@@ -136,55 +143,60 @@ class Call_trigger:
         return status
 
     def distribute_trigger(self):
-        #call the trigger
-        txhash = self.call_contract("trigger", "[]", self.distribute)
-        res = self.getReceipt(txhash)
+        # call the trigger
+        tx_hash = 'e28619be955f094c36e2c2481c301c94ac66a6576d26a7782b7a243ef774970e' #self.call_contract("trigger", "[]", self.distribute)
+        res = self.get_receipt(tx_hash)
         print(res)
         obj = json.loads(res)
         status = obj["result"]["status"]
-        if status ==1:
-            hasNext = obj["result"]['execute_result']["hasNext"]
-            if  hasNext:
+        execute_result = obj["result"]['execute_result']
+
+        if status == 1:
+            pattern = re.compile(r'{\"period\":(.*?),\"start\":(.*?),\"end\":(.*?),\"page\":(.*?),\"hasNext\":(.*?)}')
+            match = re.search(pattern, obj["result"]["execute_result"])
+            hasNext = match.group(5)
+            print('hasNext: %s' % hasNext)
+
+            if hasNext != 'false':
                 self.distribute_trigger()
 
-
     def daily_timer(self):
-        #time_skip, 300seconds, 288 times a day
+        # time_skip, 300seconds, 288 times a day
         seconds_one_day = 24 * 60 * 60
         times_one_day = int(seconds_one_day / self.time_skip)
 
-        #check the balance
+        # check the balance
         possibility = self.check_times / times_one_day
-        rand = 0 #random.random()
+        rand = random.random()
         if rand < possibility:
-            res = self.check_balance()
+            self.check_balance()
 
-        #block height now
+        # block height now
         results = self.neb.api.getNebState().text
         obj = json.loads(results)
         height_now = int(obj["result"]["height"])
-        print("height now: %d, height next: %d"%(height_now, self.height_next))
+        print("height now: %d, height next: %d" % (height_now, self.height_next))
 
-        #Run the trigger
-        self.height_next = 0
+        # Run the trigger
         if height_now > self.height_next:
-            #calculate
+            # calculate
+
             status = self.calculate('null')
 
-            #distribute
+            # distribute
             if status == 1:
                 self.distribute_trigger()
 
-            #change the height_next
+            # Change the height_next
             self.height_next += self.period_height
 
-        #call next Timer
-        print('curreent threading:{}'.format(threading.activeCount()))
+        # call next Timer
+        print('current threading:{}'.format(threading.activeCount()))
         timer = threading.Timer(self.time_skip, self.daily_timer)
         timer.start()
 
     def core(self):
-        #block height now and height of next circle
+        # block height now and height of next circle
         results = self.neb.api.getNebState().text
         obj = json.loads(results)
         self.height_begin = int(obj["result"]["height"])
@@ -192,7 +204,7 @@ class Call_trigger:
 
         threading.Timer(1, self.daily_timer).start()
 
-if __name__ == "__main__":
 
-    caller = Call_trigger()
+if __name__ == "__main__":
+    caller = CallTrigger()
     caller.core()
