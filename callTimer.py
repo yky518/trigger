@@ -22,9 +22,12 @@ class CallTrigger:
         self.from_account = Account("5876489b63d456e3c82b043d235b46f76d4503b613230ed47d10bc4921e22f6a")
         self.from_addr = self.from_account.get_address_obj()
 
+        # period height
+        self.period_height = 6000
+
         # block height
-        self.height_begin = 0
-        self.height_next = 0
+        self.height_begin = 2371840
+        self.height_next = self.height_begin + self.period_height
 
         # time_skip, 300seconds
         self.time_skip = 300
@@ -32,8 +35,6 @@ class CallTrigger:
         # times checking the balance，3 times one day
         self.check_times = 3
 
-        # period height
-        self.period_height = 6000
 
         # contract address
         self.distribute = "n1qndLHUUkePQ9rWU1JZyfZJDqZNH5o3zLg"
@@ -123,18 +124,18 @@ class CallTrigger:
         nonce = self.get_nonce()
         # calculate
         print(sessionid)
-        tx_hash = '6b22c098d3d4ffa150aa98028d84128b8ca2d431f3ffffa258f38b74c2bd74c6' #self.call_contract("calculateTotalValue", "[%s]" % str(sessionid), self.staking_proxy)
+        tx_hash = self.call_contract("calculateTotalValue", "[%s]" % str(sessionid), self.staking_proxy)
         res = self.get_receipt(tx_hash)
         print(res)
         obj = json.loads(res)
         status = obj["result"]["status"]
+        execute_result = obj["result"]["execute_result"]
         if status == 1:
-            pattern = re.compile(r'{\"hasNext\":(.*?),\"sessionId\":(.*?)}')
-            match = re.search(pattern, obj["result"]["execute_result"])
-            hasNext = match.group(1)
-            sessionid = int(match.group(2))
+            result_json = json.loads(execute_result)
+            hasNext = result_json['hasNext']
+            sessionid = result_json['sessionId']
             print('hasNext: %s, sessionid: %d' % (hasNext, sessionid))
-            if hasNext != 'false':
+            if hasNext:
                 # next calculate
                 self.calculate(sessionid)
             else:
@@ -144,20 +145,19 @@ class CallTrigger:
 
     def distribute_trigger(self):
         # call the trigger
-        tx_hash = 'e28619be955f094c36e2c2481c301c94ac66a6576d26a7782b7a243ef774970e' #self.call_contract("trigger", "[]", self.distribute)
+        tx_hash = self.call_contract("trigger", "[]", self.distribute)
         res = self.get_receipt(tx_hash)
         print(res)
         obj = json.loads(res)
         status = obj["result"]["status"]
-        execute_result = obj["result"]['execute_result']
+        execute_result = obj["result"]["execute_result"]
 
         if status == 1:
-            pattern = re.compile(r'{\"period\":(.*?),\"start\":(.*?),\"end\":(.*?),\"page\":(.*?),\"hasNext\":(.*?)}')
-            match = re.search(pattern, obj["result"]["execute_result"])
-            hasNext = match.group(5)
+            result_json = json.loads(execute_result)
+            hasNext = result_json['hasNext']
             print('hasNext: %s' % hasNext)
 
-            if hasNext != 'false':
+            if hasNext:
                 self.distribute_trigger()
 
     def daily_timer(self):
@@ -180,7 +180,6 @@ class CallTrigger:
         # Run the trigger
         if height_now > self.height_next:
             # calculate
-
             status = self.calculate('null')
 
             # distribute
@@ -199,8 +198,6 @@ class CallTrigger:
         # block height now and height of next circle
         results = self.neb.api.getNebState().text
         obj = json.loads(results)
-        self.height_begin = int(obj["result"]["height"])
-        self.height_next = self.height_begin + self.period_height
 
         threading.Timer(1, self.daily_timer).start()
 
